@@ -1,8 +1,10 @@
 import argparse
 import json
+from geometry import *
 from math import sin,cos,sqrt
 from os import path
 
+## defines the output skeleton for the babylon file
 output = {
 	"producer": {"name": "mhx2babylon", "version":"2.0.27", "exporter_version":"1.0.0"}, 
 	"materials":[],
@@ -13,9 +15,6 @@ output = {
     "cameras": [], # array of Cameras (see below),
     "activeCamera_": "",# string,
     "lights": [], # array of Lights (see below),
-    #"materials": array of Materials (see below),
-    #"geometries": {...} (see below),
-    #"meshes": array of Meshes (see below),
     "multiMaterials": [], # array of MultiMaterials (see below),
     "shadowGenerators": [], # array of ShadowGenerators (see below),
     "skeletons": [],  # array of Skeletons (see below),
@@ -26,16 +25,12 @@ output = {
     "workerCollisions": False, # boolean,
     "collisionsEnabled": False, # boolean,
     "physicsEnabled": False, #boolean,
-    #"physicsGravity": vector3 (defaults to [0,-9.81,0]),
-    #"physicsEngine": string ("oimo" or "cannon", defaults to the default engine (oimo),
-    #"animations": array of Animations (see below, can be omitted),
     "autoAnimate": False, #boolean,
-    #"autoAnimateFrom": int,
-    #"autoAnimateTo": int,
-    #"autoAnimateLoop": boolean (can be omitted),
-    #"autoAnimateSpeed": number (can be omitted)
 }
 
+'''
+Converts a MHX2 texture structure to a babylon texture
+'''
 def convertTexture(name):
 	return {
 		"name": name,
@@ -53,7 +48,10 @@ def convertTexture(name):
 		"coordinatesIndex":0,
 		"coordinatesMode":0,
 	};
-	
+
+'''
+Converts a MHX2 material to a babylon material 
+'''
 def convertMaterial(input):
 	# create Texture skeleton
 	material = {
@@ -87,25 +85,6 @@ def convertMaterial(input):
 			
 	return material;
 	
-def addVector(one, two):
-	if len(one) != len(two) or len(one) != 3:
-		raise ValueError("no vector given");
-	
-	one[0] += two[0];
-	one[1] += two[1];
-	one[2] += two[2];
-	
-	return one;
-
-def subVector(one, two):
-	if len(one) != len(two) or len(one) != 3:
-		raise ValueError("no vector given");
-	
-	one[0] -= two[0];
-	one[1] -= two[1];
-	one[2] -= two[2];
-	
-	return one;
 def convertBone(input, offset):
 	# don't add Root to output skeleton 
 	if input["name"] == "Root":
@@ -128,103 +107,7 @@ def convertMatrix(input):
 			output.append(input[i][j]);
 		
 	return output;
-			
-class Quat:
-	def __init__(this, axis, angle):
-		this.x = axis[0] * sin(angle/2);
-		this.y = axis[1] * sin(angle/2);
-		this.z = axis[2] * sin(angle/2);
-		this.w = cos(angle/2);
-	
-	def normalize(this):
-		l = sqrt(this.x**2 + this.y**2 + this.z**2 + this.w**2);
-		this.x /= l;
-		this.y /= l;
-		this.z /= l;
-		this.w /= l;
-		
-	def matrix(this):
-		this.normalize();
-		
-		matrix = [];
-		
-		matrix.append([
-			1- 2*this.y**2 - 2*this.z**2,
-			2*this.x*this.y - 2*this.z*this.w,
-			2*this.x*this.z + 2*this.y*this.w,
-			0
-		]);
-		
-		matrix.append([
-			2*this.x*this.y + 2*this.z*this.w,
-			1-2*this.x**2 - 2*this.z**2,
-			2*this.y*this.z - 2*this.x*this.w,
-			0
-		]);
-		
-		matrix.append([
-			2*this.x*this.z - 2*this.y*this.w,
-			2*this.y*this.z + 2*this.x*this.w,
-			1-2*this.x**2 - 2*this.y**2,
-			0
-		]);
-		
-		matrix.append([
-			0,
-			0,
-			0,
-			1.0,
-		]);
-		
-		return matrix;
 
-class Vector:
-	def __init__(this, arr):
-		this.x = arr[0];
-		this.y = arr[1];
-		this.z = arr[2];
-		
-	def sub(this, other):
-		this.x -= other.x;
-		this.y -= other.y;
-		this.z -= other.z;
-		return this
-	
-	def add(this, other):
-		this.x += other.x;
-		this.y += other.y;
-		this.z += other.z;
-		return this;
-		
-	# divide components by scalar
-	def div(this, s):
-		this.x /= s;
-		this.y /= s;
-		this.z /= s;
-		return this;
-		
-	# return length of vector
-	def length(this):
-		return sqrt(this.x**2 + this.y**2 + this.z**2);
-
-	# normalize vector
-	def normalize(this):
-		l = this.length();
-		return this.div(l);
-	
-	# return vector as array [x,y,z]		
-	def array(this):
-		return [this.x, this.y, this.z];
-		
-	def cross(this, other):
-		temp = Vector([0,0,0]);
-		
-		temp.x = this.y * other.z - this.z * other.y;
-		temp.y = this.z * other.x - this.x * other.z;
-		temp.z = this.x * other.y - this.y * other.x;
-		
-		return temp; 		
-		
 class Skeleton: 
 	def __init__(this, input):
 		this.bones = [];
@@ -253,7 +136,7 @@ class Skeleton:
 		newbone["matrix"] = convertMatrix(bone["matrix"]);
 		
 		# convert restpose
-		axis = subVector(bone["tail"], bone["head"]);
+		axis = Vector(bone["tail"]).sub(Vector(bone["head"]))
 		angle = bone["roll"]
 		rest = Quat(axis, angle);
 		
@@ -291,6 +174,13 @@ def convertMesh(input, hasSkeleton, parent):
 		"animations":[],
 		"instances":[],
 		"actions": [],
+		
+		# mesh stuff
+		"submeshes": [], # The mesh definition
+		"positions": [], # Vertex Buffer
+		"normals": [], # vertex normals
+		"uv": [], # vertex uvs
+		"indices": [], # index buffer	
 	}
 	
 	# mhx2 only has one skeleton
@@ -302,12 +192,6 @@ def convertMesh(input, hasSkeleton, parent):
 	# babylon collects all vertices in mesh 
 	# and then defined all relevant data (index, vertex start etc)
 	# in the submeshes
-	mesh["submeshes"] = [];
-	mesh["positions"] = [];
-	mesh["indices"] = [];
-	mesh["normals"] = [];
-	mesh["uv"] = [];
-	
 	mhxMesh = input["mesh"];
 	offset = Vector(input["offset"]);
 	
@@ -317,6 +201,9 @@ def convertMesh(input, hasSkeleton, parent):
 	for pos in mhxMesh["vertices"]:
 		mesh["positions"].extend(Vector(pos).add(offset).array());
 
+	if parent != "":
+		mesh["parentId"] = parent;
+		
 	facenormals = {};
 	
 	for face in mhxMesh["faces"]:
@@ -380,13 +267,14 @@ def convertMeshes(input, hasSkeleton):
 	
 	# find mesh of human
 	for mesh in input:
-		if mesh["isHuman"]:
+		if mesh["human"]:
 			output.append(convertMesh(mesh, hasSkeleton, ""));
 			parentId = mesh["name"]
+			print("found parent: ", parentId);
 			break;
 			
 	for mesh in input:
-		if parentId != "" and mesh["isHuman"]:
+		if parentId != "" and mesh["human"]:
 			continue;
 			
 		output.append(convertMesh(mesh, hasSkeleton, parentId));
@@ -408,7 +296,7 @@ def convert(input):
 		hasSkeleton = True;
 		
 	# convert meshes
-	output["meshes"] = convertMeshes(input["geometries"]);
+	output["meshes"] = convertMeshes(input["geometries"], hasSkeleton);
 	
 
 def main():
