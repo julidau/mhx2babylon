@@ -1,5 +1,6 @@
 import argparse
 import json
+import copy
 from geometry import *
 from math import sin,cos,sqrt
 from os import path
@@ -29,9 +30,286 @@ output = {
 }
 
 '''
+Used to encode the BabylonJS class to JSON 
+'''
+class Encoder(json.JSONEncoder):
+	def default(self, input):
+		if isinstance(input, Mesh):
+			print("write mesh", input.name);
+			output = copy.deepcopy(input.__dict__);
+			del output["parent"]
+			return output
+			
+		if isinstance(input, Skeleton):
+			return input.__dict__;
+			
+		return input;
+
+
+'''
+Represents a BabylonJS Mesh
+'''
+class Mesh:
+	'''
+	initialize empty mesh
+	'''
+	def __init__(this, scene):
+		this.parent = scene; # save scene handle
+		
+		this.name = "";
+		this.id = "";
+		this.materialId = "";
+		
+		this.position = [0,0,0];
+		this.scaling = [1,1,1];
+		
+		
+		this.isVisible = True;
+		this.isEnabled = True;
+		this.checkCollision = False;
+		this.receiveShadows = False;
+		this.pickable = True;
+		
+		this.billboardMode = 0; # normal
+		this.physicsImposter = 0;
+		this.tags = "";
+		this.animations = [];
+		this.instances = [];
+		this.actions = [];
+		
+		this.submeshes = [];
+		this.positions = []; # vertex buffer
+		this.normals   = []; # normals buffer
+		this.uv        = []; # uv buffer
+		this.indices   = []; # index buffer
+	
+	def convertWeights(this, input):
+		this.skeletonId = 0; # only one skeleton supported by mhx2
+		this.matricesWeights = [];
+		this.matricesIndices = [];
+		
+		influencers = {};
+		numInfluencers = 0; # keeps track of the maximum of bones that influence
+							# one vertex
+		
+		# list all bones and note the weight
+		# for each vertex
+		for bonename in input:
+			weights = input[bonename];
+			boneId = this.parent.skeletons[0].getBoneByName(bonename);
+			
+			for w in weights:
+				vertexId = w[0];
+				
+				if not vertexId in influencers:
+					influencers[vertexId] = [];
+				
+				influencers[vertexId].append([boneId, w[1]]);				
+				if numInfluencers < len(influencers[vertexId]):
+					# count the maximum number of influencers
+					numInfluencers = len(influencers[vertexId]);
+		
+		# write influencers
+		# cap to 8 (babylonjs maximum)
+		if numInfluencers > 8:
+			print("mesh has more than 8 relevant bones influencing it. Babylon has a limit 8 bones per vertex. Will ignore the remaining weights");
+			numInfluencers = 8; 
+		
+		# write only if there are ANY bones
+		if numInfluencers == 0:
+			return;
+		
+		if numInfluencers > 4:
+			this.matricesIndicesExtra = [];
+			this.matricesWeightsExtra = [];
+			
+		this.numBoneInfluencers = numInfluencers; # seems to be an optional attribute
+		print("type:", type(influencers));
+		
+		for vertex in sorted(influencers):
+			data = influencers[vertex];
+			l = len(data);
+		
+			# write matricesIndices and matricesWeights
+			for i in range(0,4):
+				this.matricesIndices.append(data[i][0] if i < l else 0);
+				this.matricesWeights.append(data[i][1] if i < l else 0);
+			
+			if numInfluencers > 4:
+				# write extra
+				for i in range(0,4):
+					this.matricesIndicesExtra.append(data[i+4][0] if i+4 < l else 0);
+					this.matricesWeightsExtra.append(data[i+4][1] if i+4 < l else 0);
+				
+	def fromMhx2(input, scene):
+		this = Mesh(scene);
+		
+		this.name = input["name"];
+		this.id = input["name"];
+		this.materialId = input["material"]
+		
+		mhxMesh = input["mesh"];
+						
+		# babylon collects all vertices in mesh 
+		# and then defined all relevant data (index, vertex start etc)
+		# in the submeshes
+		
+		offset = Vector(input["offset"]);
+		
+		for uv in mhxMesh["uv_coordinates"]:
+			this.uv.extend(uv);
+			
+		for pos in mhxMesh["vertices"]:
+			this.positions.extend(Vector(pos).add(offset).array());
+
+		facenormals = {};
+		
+		for face in mhxMesh["faces"]:
+			# must triangulate quads
+			if len(face) == 4:
+				# calculate face normal
+				A = Vector(mhxMesh["vertices"][face[1]]).sub(Vector(mhxMesh["vertices"][face[0]]))
+				B = Vector(mhxMesh["vertices"][face[3]]).sub(Vector(mhxMesh["vertices"][face[0]]))
+				normal = A.cross(B);
+				
+				this.indices.extend([face[3], face[1], face[0]]);
+				this.indices.extend([face[3], face[2], face[1]]);
+				
+				# add facenormal for every vertex in this face
+				for i in face:
+					if not (i in facenormals):
+						facenormals[i] = [];
+						
+					facenormals[i].append(normal);
+			else:
+				raise ValueError("found triangle, expected quad");
+		
+		# calculate normals for vertices
+		# by blending the normals
+		# of all adjacent faces together
+		warn = False;
+		last = -1;
+		for key in sorted(facenormals):
+			while key > last+1:
+				# fill unknown normals with [0,0,0] for now
+				mesh["normals"].extend([0,0,0]);
+				last = last +1;
+				if not warn:
+					print("[WARN] fill missing normals, which should not be nessesary");
+					warn = True # only warn once
+					
+			# blend normals
+			normal = Vector([0,0,0]);
+			for n in facenormals[key]:
+				normal.add(n);
+						
+			normal.normalize();
+			this.normals.extend(normal.array());
+			last = key;	
+		
+		print("calculated {} normals".format(last+1));
+		
+		# create submesh
+		this.submeshes.append({
+			"materialIndex": 0,
+			"verticesStart": 0,
+			"verticesStop": len(mhxMesh["vertices"]),
+			"indexStart": 0,
+			"indexStop": len(this.indices),
+		});
+		
+		
+		# convert weights of mesh if needed
+		# mhx2 only has one skeleton
+		if "weights" in mhxMesh:
+			this.convertWeights(mhxMesh["weights"]);
+			print("converted weights");
+		
+		return this;
+		
+'''
+Represents a BabylonJS Scene
+'''
+class BabylonJS:
+	def __init__(this):
+		this.producer = {"name": "mhx2babylon", "version":"2.0.27", "exporter_version":"1.0.0"}
+	
+		this.multiMaterials = [];
+		this.shadowGenerators = [];
+		
+		# necessary flags (don't hold value in this context)
+		this.autoClear = False;
+		this.workerCollisions = False;
+		this.collisionsEnabled = False;
+		this.physicsEnabled = False;
+		this.autoAnimate = False;
+		
+		# scene settings (most likely also ignored by importer)
+		this.clearColor = [1,1,1];
+		this.ambientColor = [1,1,1];
+		this.gravity = [0,-9,0];
+		this.cameras = [];
+		this.activeCamera = ""
+		this.lights = [];
+		
+		# attributes we do not posses
+		this.particleSystems = [];
+		this.lensFlareSystems = [];
+		this.actions = [];
+		this.sounds = [];
+	
+		# The only things of importance
+		this.materials = [];
+		this.skeletons = [];
+		this.meshes = [];
+	
+	def fromMhx2(input):
+		this = BabylonJS();
+		
+		print ("begin conversion");
+		
+		# convert materials
+		for material in input["materials"]:
+			this.materials.append(convertMaterial(material))
+
+		# TODO: test
+		if "skeleton" in input:
+			this.skeletons = [Skeleton(input["skeleton"])];
+			
+		# convert meshes
+		this.convertMeshes(input["geometries"]);
+		
+		print ("conversion is finished");
+		return this;
+		
+	def convertMeshes(this, input):
+		parentId = "";
+		
+		# find mesh of human (and set as parent for others)
+		for mesh in input:
+			if mesh["human"]:
+				this.meshes.append(Mesh.fromMhx2(mesh,this));
+				parentId = mesh["name"]
+				print("found parent: ", parentId);
+				break;
+				
+		# convert remaining meshes
+		for mesh in input:
+			if parentId != "" and mesh["human"]:
+				continue;
+			
+			m = Mesh.fromMhx2(mesh, this);
+			# set parent
+			m.parentId = parentId;
+			this.meshes.append(m);	
+			
+	
+		
+'''
 Converts a MHX2 texture structure to a babylon texture
 '''
 def convertTexture(name):
+	# TODO: pack image file in base64 field
 	return {
 		"name": name,
 		"level": 1,
@@ -100,11 +378,11 @@ def convertBone(input, offset):
 	return None;
 
 def convertMatrix(input):
-	output = [];
+	output = Matrix();
 	
 	for i in range(0,4):
 		for j in range(0,4):
-			output.append(input[i][j]);
+			output[i,j] = input[i][j];
 		
 	return output;
 
@@ -127,33 +405,51 @@ class Skeleton:
 		
 		# find parent (with index)
 		if "parent" in bone:
-			newbone["parentBoneIndex"] = this.BoneByName(bone["parent"]);
+			newbone["parentBoneIndex"] = this.getBoneByName(bone["parent"]);
 		else:
 			# root node is parent
 			newbone["parentBoneIndex"] = -1;
 		
-		# convert matrix
-		newbone["matrix"] = convertMatrix(bone["matrix"]);
 		
 		# convert restpose
-		axis = Vector(bone["tail"]).sub(Vector(bone["head"]))
+		origin = Vector(bone["head"]);
+		axis = Vector(bone["tail"]).sub(origin)
 		angle = bone["roll"]
 		rest = Quat(axis, angle);
 		
-		newbone["rest"] = convertMatrix(rest.matrix());
+		#origin = Vector([0,0,0]);
+		T = Matrix.translation(Vector(origin).multiply(-1));
+		revT = Matrix.translation(origin);
+		mat = T.multiply(rest.matrix().multiply(revT));
+		#mat = mat.multiply(revT);
+		#mat = rest.matrix().multiply(T);
+		#mat = revT.multiply(mat);
+		
+		#mat = rest.transMat(Vector([0,-1,0]));
+		
+		
+		#newbone["rest"] = mat.array();
 		newbone["length"] = Vector(axis).length();
 		newbone["index"] = len(this.bones);
 		
+		# convert matrix
+		newbone["matrix"] = mat.array(); # convertMatrix(bone["matrix"]).array();
+		
 		this.bones.append(newbone);
 		
-	def BoneByName(this, name):
+	def getBoneByName(this, name):
 		for index, bone in enumerate(this.bones):
 			if bone["name"] == name:
 				return index
 		
 		raise RuntimeError("skeleton references parent bone before it existing");
-		
-		
+	
+	def getBoneMap(this):
+		output = {}
+		for index, bone in enumerate(this.bones):
+			output[bone["name"]] = index;
+			
+		return output;		
 		
 def convertSkeleton(input):
 	return Skeleton(input).__dict__;
@@ -259,30 +555,12 @@ def convertMesh(input, hasSkeleton, parent):
 	
 	mesh["position"] = [0,0,0];
 	mesh["scaling"] = [1,1,1];
-	return mesh;
-
-def convertMeshes(input, hasSkeleton):
-	output = [];
-	parentId = "";
-	
-	# find mesh of human
-	for mesh in input:
-		if mesh["human"]:
-			output.append(convertMesh(mesh, hasSkeleton, ""));
-			parentId = mesh["name"]
-			print("found parent: ", parentId);
-			break;
-			
-	for mesh in input:
-		if parentId != "" and mesh["human"]:
-			continue;
-			
-		output.append(convertMesh(mesh, hasSkeleton, parentId));
-	
-	return output;
-	
+	return mesh;	
 		
 def convert(input):
+	output = BabylonJS.fromMhx2(input);
+	return output.__dict__;
+	
 	# convert materials
 	output["materials"] = [];
 	
@@ -318,11 +596,12 @@ def main():
 	print(len(data["materials"]));
 	print(data["geometries"][0]["license"]);
 
-	convert(data);
+	output = convert(data);
 	output["producer"]["file"] = path.basename(args.output);
+	
 	# write output
 	with  open(args.output, "w") as file:
-		json.dump(output, file);
+		json.dump(output, file, cls=Encoder);
 
 if __name__ == "__main__":
 	main();
