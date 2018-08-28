@@ -19,36 +19,43 @@ class Vector:
 			
 		raise KeyError("index out of range");
 		
+	# subtract other vector
 	def sub(this, other):
-		this.x -= other.x;
-		this.y -= other.y;
-		this.z -= other.z;
-		return this
+		copy = Vector(this);
+		copy.x -= other.x;
+		copy.y -= other.y;
+		copy.z -= other.z;
+		return copy
 	
+	# add other vector
 	def add(this, other):
-		this.x += other.x;
-		this.y += other.y;
-		this.z += other.z;
-		return this;
+		copy = Vector(this);
+		copy.x += other.x;
+		copy.y += other.y;
+		copy.z += other.z;
+		return copy;
 		
 	# divide components by scalar
 	def div(this, s):
-		this.x /= s;
-		this.y /= s;
-		this.z /= s;
-		return this;
+		copy = Vector(this);
+		copy.x /= s;
+		copy.y /= s;
+		copy.z /= s;
+		return copy;
 	
+	# multiply components by scalar
 	def multiply(this, s):
-		this.x *= s;
-		this.y *= s;
-		this.z *= s;
-		return this;
+		copy = Vector(this);
+		copy.x *= s;
+		copy.y *= s;
+		copy.z *= s;
+		return copy;
 		
 	# return length of vector
 	def length(this):
 		return sqrt(this.x**2 + this.y**2 + this.z**2);
 
-	# normalize vector
+	# normalize vector with length
 	def normalize(this):
 		l = this.length();
 		return this.div(l);
@@ -56,7 +63,8 @@ class Vector:
 	# return vector as array [x,y,z]		
 	def array(this):
 		return [this.x, this.y, this.z];
-		
+	
+	# calculate crossproduct of vector with other vector
 	def cross(this, other):
 		temp = Vector([0,0,0]);
 		

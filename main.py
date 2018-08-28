@@ -201,7 +201,7 @@ class Mesh:
 			# blend normals
 			normal = Vector([0,0,0]);
 			for n in facenormals[key]:
-				normal.add(n);
+				normal = normal.add(n);
 						
 			normal.normalize();
 			this.normals.extend(normal.array());
@@ -369,8 +369,8 @@ def convertBone(input, offset):
 		return None;
 		
 	# calculate reset pose based on offset and head/tail vector
-	head = addVector(input["head"], offset);
-	tail = addVector(input["tail"], offset);	
+	head = Vector(input["head"]).add(offset);
+	tail = Vector(input["tail"]).add(offset);	
 	roll = input["roll"];
 	
 	print(head, tail, roll);
@@ -413,27 +413,26 @@ class Skeleton:
 		
 		# convert restpose
 		origin = Vector(bone["head"]);
-		axis = Vector(bone["tail"]).sub(origin)
-		angle = bone["roll"]
-		rest = Quat(axis, angle);
+		axis   = Vector(bone["tail"]).sub(origin)
+		angle  = bone["roll"]
+		rest   = Quat(axis, angle);
 		
 		#origin = Vector([0,0,0]);
-		T = Matrix.translation(Vector(origin).multiply(-1));
-		revT = Matrix.translation(origin);
-		mat = T.multiply(rest.matrix().multiply(revT));
-		#mat = mat.multiply(revT);
-		#mat = rest.matrix().multiply(T);
-		#mat = revT.multiply(mat);
+		# transformation = shift to point * rotate around origin * shift to origin
+		T      = Matrix.translation(origin.multiply(-1)); # shift to origin
+		revT   = Matrix.translation(origin);              # shift back to point
+		rotMat = rest.matrix();                           # rotate around origin
 		
-		#mat = rest.transMat(Vector([0,-1,0]));
+		# combine all transformations
+		mat = revT.multiply(rotMat.multiply(T)); 
 		
-		
-		#newbone["rest"] = mat.array();
+		# write matrix to bone		
+		newbone["matrix"] = mat.array();
+		newbone["rest"]   = mat.array();
 		newbone["length"] = Vector(axis).length();
-		newbone["index"] = len(this.bones);
+		newbone["index"]  = len(this.bones);
 		
-		# convert matrix
-		newbone["matrix"] = mat.array(); # convertMatrix(bone["matrix"]).array();
+		
 		
 		this.bones.append(newbone);
 		
